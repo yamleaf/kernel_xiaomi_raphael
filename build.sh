@@ -1,28 +1,51 @@
 #!/bin/bash
 
-#set -e
+set -x
 
+# 获取当前路径
+CURRENT_DIR=$(pwd)
 
 ## Copy this script inside the kernel directory
 KERNEL_DEFCONFIG=raphael_defconfig
-ANYKERNEL3_DIR=$PWD/AnyKernel3/
-FINAL_KERNEL_ZIP=ProjectR-KERNEL-K20P-$(date '+%Y%m%d').zip
-export PATH="$HOME/clang-r510928/bin:$PATH"
+
+# 目标文件
+FINAL_KERNEL_ZIP_PRE=rikkakernel-v2-raphael
+FINAL_KERNEL_ZIP=$FINAL_KERNEL_ZIP_PRE-$(date '+%Y%m%d-%H%M').zip
+
+# 设置编译参数
+CC_DIR=$PWD/toolchains/clang
+#CC_GIT=https://github.com/kdrag0n/proton-clang.git
+CC_GIT=https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman
+CC_TYPE=antman
+CC=$CC_DIR/bin/clang
+CROSS_COMPILE=aarch64-linux-gnu-
+CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
+CLANG_TRIPLE=aarch64-linux-gnu-
+CC_ADD_FLAGS="LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip LLVM_IAS=1 LLVM=1"
+ANYKERNEL3_DIR=$CURRENT_DIR/toolchains/AnyKernel3
+KSU_DIR=$CURRENT_DIR/drivers/staging/kernelsu
+KSU_BRANCH=main
+BUILD_CMD=all
+THREADNUM=$(($(nproc --all) / 2))
+TARGET_OBJS="Image.gz-dtb"
+
+export PATH="$CC_DIR/bin:$PATH"
 export ARCH=arm64
 export KBUILD_BUILD_HOST=server
 export KBUILD_BUILD_USER=nasir
-export KBUILD_COMPILER_STRING="$($HOME/clang-r510928/bin/clang --version | head -n 1 | perl -pe 's/\(http.*?\)//gs' | sed -e 's/  */ /g' -e 's/[[:space:]]*$//')"
-if ! [ -d "$HOME/clang-r510928" ]; then
-echo "Clang not found! Cloning..."
-if ! git clone -q https://github.com/kdrag0n/proton-clang.git --depth=1  ~/clang-r510928; then
-echo "Cloning failed! Aborting..."
-exit 1
-fi
-fi
 
-# Speed up build process
-MAKE="./makeparallel"
+# 编译参数
+#args="-j$THREADNUM \
+ args="O=out \
+      ARCH=$ARCH \
+      CC=$CC \
+      CLANG_TRIPLE=$CLANG_TRIPLE \
+      CROSS_COMPILE=$CROSS_COMPILE \
+      CROSS_COMPILE_COMPAT=$CROSS_COMPILE_COMPAT \
+      $CC_ADD_FLAGS \
+      "
 
+# 编译输出参数
 BUILD_START=$(date +"%s")
 blue='\033[0;34m'
 cyan='\033[0;36m'
@@ -30,60 +53,150 @@ yellow='\033[0;33m'
 red='\033[0;31m'
 nocol='\033[0m'
 
-# Clean build always lol
-echo "**** Cleaning ****"
-mkdir -p out
-make O=out clean
-make mrproper
+# 解析命令
+function build_cmd() {
+    if [ "$1" == "all" ]; then
+        BUILD_CMD=build_main
+    elif [ "$1" == "config"  -o "$1" == "cfg" ]; then
+        BUILD_CMD=build_defconfig
+    elif [ "$1" == "prep"  -o "$1" == "prepare" -o "$1" == "ksu" ]; then
+        BUILD_CMD=build_prepare
+    elif [ "$1" == "kernel" ]; then
+        BUILD_CMD=build_kernel
+    elif [ "$1" == "clean" ]; then
+        BUILD_CMD=objs_clean
+    elif [ "${1:0:3}" == "any" ]; then
+        BUILD_CMD=build_Anykernel
+    else
+        build_help
+        exit 2
+    fi
+}
 
-echo "**** Kernel defconfig is set to $KERNEL_DEFCONFIG ****"
-echo -e "$blue***********************************************"
-echo "          BUILDING KERNEL          "
-echo -e "***********************************************$nocol"
-git submodule init && git submodule update
-#make $KERNEL_DEFCONFIG O=out
-#make -j$(nproc --all) O=out \
-                     # ARCH=arm64 \
-                     # CC=clang \
-                     # CLANG_TRIPLE=aarch64-linux-gnu- \
-                     # CROSS_COMPILE=aarch64-linux-gnu- \
-                     # CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-                     # LD=ld.lld \
-                     # LLVM=1 \
-                     # LLVM_IAS=1
-mkdir -p out
-make O=out ARCH=arm64 $KERNEL_DEFCONFIG
-make -j$(nproc --all) O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip CROSS_COMPILE=$GCC_DIR/aarch64-linux-gnu- CROSS_COMPILE_ARM32=$GCC_DIR/arm-linux-gnueabi- Image.gz-dtb dtbo.img
+# 编译帮助
+function build_help() {
+    echo -e "$blue"
+    echo "Usage: ./build.sh [all] [prepare|ksu] [clean] [anykernel|any][config|cfg][kernel]$nocol"
+    exit 0
+}
 
-echo "**** Verify Image.gz-dtb, dtbo.img ****"
-ls $PWD/out/arch/arm64/boot/Image.gz-dtb
-ls $PWD/out/arch/arm64/boot/dtbo.img
+# 编译准备
+function build_prepare() {
+    echo -e "$blue***********************************************"
+    echo "  Update the KernelSu drivers  "
+    echo -e "***********************************************$nocol"
+    if [ ! -d $CURRENT_DIR/out ]; then
+        mkdir -p out
+    fi
+    git submodule init && git submodule update
+    cd $KSU_DIR
+    git pull origin $KSU_BRANCH
+    cd $CURRENT_DIR
+}
 
-# Anykernel 3 time!!
-echo "**** Verifying AnyKernel3 Directory ****"
-ls $ANYKERNEL3_DIR
-echo "**** Removing leftovers ****"
-rm -rf $ANYKERNEL3_DIR/Image.gz-dtb
-rm -rf $ANYKERNEL3_DIR/dtbo.img
-rm -rf $ANYKERNEL3_DIR/$FINAL_KERNEL_ZIP
+# 构建设备配置
+function build_defconfig() {
+    echo -e "$blue***********************************************"
+    echo "  Building Device Kernel $KERNEL_DEFCONFIG  "
+    echo -e "***********************************************$nocol"
+    make ${args} $KERNEL_DEFCONFIG
+}
 
-echo "**** Copying Image.gz-dtb , dtbo.img ****"
-cp $PWD/out/arch/arm64/boot/Image.gz-dtb $ANYKERNEL3_DIR/
-cp $PWD/out/arch/arm64/boot/dtbo.img $ANYKERNEL3_DIR/
+# 构建内核
+function build_kernel() {
+    echo -e "$blue***********************************************"
+    echo "  Building Kernel drivers  "
+    echo -e "***********************************************$nocol"
+    make ${args} $TARGET_OBJS
+    if [ $? == 1 ]; then
+        echo "$red *** kernel build error!!! ****"
+        exit 1
+    fi
+}
 
-echo "**** Time to zip up! ****"
-cd $ANYKERNEL3_DIR/
-zip -r9 "../$FINAL_KERNEL_ZIP" * -x README $FINAL_KERNEL_ZIP
+# 检查工具链
+function build_toolchain() {
+    echo -e "$blue***********************************************"
+    echo "  Build toolchains check  "
+    echo -e "***********************************************$nocol"
+    if ! [ -d "$CC_DIR/bin" ]; then
+        echo "Clang not found! Cloning $CC_GIT"
+        if [ "antman" == "$CC_TYPE" ]; then
+            mkdir -p $CC_DIR
+            cd $CC_DIR
+            curl -LO  $CC_GIT
+            chmod +x antman
+            ./antman --sync=latest
+            cd $CURRENT_DIR
+        else
+            if ! git clone -q $CC_GIT --depth=1  $CC_DIR; then
+                echo "Cloning failed! Aborting..."
+                exit 1
+            fi
+        fi
+    fi
+    
+    export KBUILD_COMPILER_STRING="$($CC_DIR/bin/clang --version | head -n 1 | perl -pe 's/\(http.*?\)//gs' | sed -e 's/  */ /g' -e 's/[[:space:]]*$//')"
+}
 
-echo "**** Done, here is your sha1 ****"
-cd ..
-rm -rf $ANYKERNEL3_DIR/$FINAL_KERNEL_ZIP
-rm -rf $ANYKERNEL3_DIR/Image.gz-dtb
-rm -rf $ANYKERNEL3_DIR/dtbo.img
-rm -rf out/
+# 临时文件清理
+function objs_clean() {
+    echo -e "$blue***********************************************"
+    echo "  Clean last objs  "
+    echo -e "***********************************************$nocol"
+    make O=out clean
+    make mrproper
+    rm -rf out
+    cd $ANYKERNEL3_DIR
+    for tar in $TARGET_OBJS; do
+        if [ -f $tar ]; then
+            rm -rf $tar
+        fi
+    done
+    if [ -f $FINAL_KERNEL_ZIP_PRE* ]; then
+        rm -rf $FINAL_KERNEL_ZIP*
+    fi
+    cd $CURRENT_DIR
+}
 
-sha1sum $FINAL_KERNEL_ZIP
+# 打包AnyKernel3
+function build_Anykernel() {
+    echo -e "$blue***********************************************"
+    echo "  Pack $FINAL_KERNEL_ZIP  "
+    echo -e "***********************************************$nocol"
+    cd $ANYKERNEL3_DIR/
+    for tar in $TARGET_OBJS; do
+        if [ -f $tar ]; then
+            echo -e "$yellow**** Copying $tar to AnyKernel ****$nocol"
+            cp $CURRENT_DIR/out/arch/arm64/boot/$tar ./
+        fi
+    done
 
-BUILD_END=$(date +"%s")
-DIFF=$(($BUILD_END - $BUILD_START))
-echo -e "$yellow Build completed in $(($DIFF / 60)) minute(s) and $(($DIFF % 60)) seconds.$nocol"
+    zip -r9 "./$FINAL_KERNEL_ZIP" * -x README $FINAL_KERNEL_ZIP
+    sha1sum $FINAL_KERNEL_ZIP
+    BUILD_END=$(date +"%s")
+    DIFF=$(($BUILD_END - $BUILD_START))
+    echo -e "$cyan Build completed in $(($DIFF / 60)) minute(s) and $(($DIFF % 60)) seconds.$nocol"
+}
+
+# 内核构建全流程
+function build_main() {
+    objs_clean && \
+    build_prepare && \
+    build_defconfig && \
+    build_kernel && \
+    build_Anykernel
+}
+
+if [ -n "$1" ]; then
+    build_cmd $1
+else
+    build_cmd all
+fi
+
+if [ "$BUILD_CMD" == "build_defconfig" -o "$BUILD_CMD" == "build_kernel" -o "$BUILD_CMD" == "build_main" ]; then
+    build_toolchain
+fi
+
+#执行脚本
+$BUILD_CMD 2>&1 | tee "$CURRENT_DIR/out/buildKernel.log"
