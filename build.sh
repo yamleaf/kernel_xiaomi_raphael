@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -x
+#set -x
 
 # 获取当前路径
 CURRENT_DIR=$(pwd)
@@ -9,34 +9,43 @@ CURRENT_DIR=$(pwd)
 KERNEL_DEFCONFIG=raphael_defconfig
 
 # 目标文件
+TARGET_OBJS="Image.gz-dtb"
 FINAL_KERNEL_ZIP_PRE=rikkakernel-v2-raphael
 FINAL_KERNEL_ZIP=$FINAL_KERNEL_ZIP_PRE-$(date '+%Y%m%d-%H%M').zip
 
 # 设置编译参数
 CC_DIR=$PWD/toolchains/clang
 #CC_GIT=https://github.com/kdrag0n/proton-clang.git
+#CC_TYPE=
 CC_GIT=https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman
-CC_TYPE=antman
-CC=$CC_DIR/bin/clang
+CC_TYPE="antman=main"
+CC=clang
 CROSS_COMPILE=aarch64-linux-gnu-
+CROSS_COMPILE_ARM32=arm-linux-gnueabi-
 CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
 CLANG_TRIPLE=aarch64-linux-gnu-
-CC_ADD_FLAGS="LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip LLVM_IAS=1 LLVM=1"
+CC_ADD_FLAGS="LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip"
 ANYKERNEL3_DIR=$CURRENT_DIR/toolchains/AnyKernel3
 KSU_DIR=$CURRENT_DIR/drivers/staging/kernelsu
 KSU_BRANCH=main
 BUILD_CMD=all
 THREADNUM=$(($(nproc --all) / 2))
-TARGET_OBJS="Image.gz-dtb"
 
 export PATH="$CC_DIR/bin:$PATH"
 export ARCH=arm64
-export KBUILD_BUILD_HOST=server
-export KBUILD_BUILD_USER=nasir
+export SUBARCH=arm64
+export KBUILD_BUILD_USER=GITHUB
+export KBUILD_BUILD_HOST=YAMLEAF
+
+# Kernel Details
+REV="R6.1"
+EDITION="STANDALONE-DSP"
+VER="$REV"-"$EDITION"
+UPDATEBUILDENV=false
 
 # 编译参数
-#args="-j$THREADNUM \
- args="O=out \
+args="-j$THREADNUM \
+      O=out \
       ARCH=$ARCH \
       CC=$CC \
       CLANG_TRIPLE=$CLANG_TRIPLE \
@@ -83,7 +92,7 @@ function build_help() {
 # 编译准备
 function build_prepare() {
     echo -e "$blue***********************************************"
-    echo "  Update the KernelSu drivers  "
+    echo "  Prepare the Kernel Environment  "
     echo -e "***********************************************$nocol"
     if [ ! -d $CURRENT_DIR/out ]; then
         mkdir -p out
@@ -92,6 +101,11 @@ function build_prepare() {
     cd $KSU_DIR
     git pull origin $KSU_BRANCH
     cd $CURRENT_DIR
+
+    if [ "$UPDATEBUILDENV" == "true" ]; then
+        sudo apt-get update
+        sudo apt install -y libelf-dev libarchive-tools lld llvm gcc binutils-arm-linux-gnueabi binutils-aarch64-linux-gnu curl wget vim git ccache automake flex lzop bison gperf build-essential zip zlib1g-dev g++-multilib libxml2-utils bzip2 libbz2-dev libbz2-1.0 libghc-bzlib-dev squashfs-tools pngcrush schedtool dpkg-dev liblz4-tool make optipng maven libssl-dev pwgen libswitch-perl policycoreutils minicom libxml-sax-base-perl libxml-simple-perl bc libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z-dev libgl1-mesa-dev xsltproc unzip device-tree-compiler kmod python2 python3 python3-pip
+    fi
 }
 
 # 构建设备配置
@@ -109,7 +123,7 @@ function build_kernel() {
     echo -e "***********************************************$nocol"
     make ${args} $TARGET_OBJS
     if [ $? == 1 ]; then
-        echo "$red *** kernel build error!!! ****"
+        echo "$red *** kernel build error!!! ****$nocol"
         exit 1
     fi
 }
@@ -121,12 +135,23 @@ function build_toolchain() {
     echo -e "***********************************************$nocol"
     if ! [ -d "$CC_DIR/bin" ]; then
         echo "Clang not found! Cloning $CC_GIT"
-        if [ "antman" == "$CC_TYPE" ]; then
+        if [ "antman" == "${CC_TYPE%%=*}" ]; then
             mkdir -p $CC_DIR
             cd $CC_DIR
             curl -LO  $CC_GIT
             chmod +x antman
-            ./antman --sync=latest
+            if [ "${CC_TYPE#*=}" == "main" ]; then
+                ./antman --sync=latest
+            elif ["${CC_TYPE#*=}" == "18" ]; then
+                ./antman -S=29072023
+            elif [ "${CC_TYPE#*=}" == "17" ]; then
+                ./antman -S=11032023
+            elif [ "${CC_TYPE#*=}" == "16" ]; then
+                ./antman -S=16012023
+            else
+                ./antman --sync=latest
+            fi
+            ./antman --patch=glibc
             cd $CURRENT_DIR
         else
             if ! git clone -q $CC_GIT --depth=1  $CC_DIR; then
@@ -144,8 +169,7 @@ function objs_clean() {
     echo -e "$blue***********************************************"
     echo "  Clean last objs  "
     echo -e "***********************************************$nocol"
-    make O=out clean
-    make mrproper
+    make O=out clean && make O=out mrproper
     rm -rf out
     cd $ANYKERNEL3_DIR
     for tar in $TARGET_OBJS; do
@@ -153,9 +177,12 @@ function objs_clean() {
             rm -rf $tar
         fi
     done
-    if [ -f $FINAL_KERNEL_ZIP_PRE* ]; then
-        rm -rf $FINAL_KERNEL_ZIP*
-    fi
+    
+    for file in $FINAL_KERNEL_ZIP_PRE*; do
+        if [ -f "$file" ]; then
+            rm -rf "$file"
+        fi
+    done
     cd $CURRENT_DIR
 }
 
