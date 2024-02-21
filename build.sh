@@ -204,7 +204,7 @@ function objs_clean() {
     fi
     
     if [ ! -f out/.config ]; then
-        cp -rf arch/$ARCH/configs/$KERNEL_DEFCONFIG out/.config
+        cp -rf out/arch/$ARCH/configs/$KERNEL_DEFCONFIG out/.config
     fi
     make O=out clean && make O=out mrproper
     rm -rf out
