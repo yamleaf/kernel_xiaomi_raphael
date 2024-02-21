@@ -30,6 +30,7 @@ KSU_DIR=$CURRENT_DIR/drivers/staging/kernelsu
 KSU_BRANCH=main
 BUILD_CMD=all
 THREADNUM=$(($(nproc --all) / 2))
+GCCVERSION=13
 
 export PATH="$CC_DIR/bin:$PATH"
 export ARCH=arm64
@@ -68,7 +69,7 @@ function build_cmd() {
         BUILD_CMD=build_main
     elif [ "$1" == "config"  -o "$1" == "cfg" ]; then
         BUILD_CMD=build_defconfig
-    elif [ "$1" == "prep"  -o "$1" == "prepare" -o "$1" == "ksu" ]; then
+    elif [ "$1" == "prep"  -o "$1" == "prepare" ]; then
         BUILD_CMD=build_prepare
     elif [ "$1" == "kernel" ]; then
         BUILD_CMD=build_kernel
@@ -76,6 +77,9 @@ function build_cmd() {
         BUILD_CMD=objs_clean
     elif [ "${1:0:3}" == "any" ]; then
         BUILD_CMD=build_Anykernel
+    elif [ "${1:0:3}" == "gcc" ]; then
+        BUILD_CMD=update_gcc_version
+        GCCVERSION=${1#*=}
     else
         build_help
         exit 2
@@ -85,8 +89,31 @@ function build_cmd() {
 # 编译帮助
 function build_help() {
     echo -e "$blue"
-    echo "Usage: ./build.sh [all] [prepare|ksu] [clean] [anykernel|any][config|cfg][kernel]$nocol"
+    echo "Usage: ./build.sh [all] [prepare|prep] [clean] [anykernel|any][config|cfg][kernel]$nocol"
+    echo -e "$blue"
+    echo "Simple: ./build.sh gcc=13                #update gcc version to 13.1.0$nocol"
     exit 0
+}
+
+#更新编译环境gcc
+function update_gcc_version() {
+    echo -e "$blue***********************************************"
+    echo "  Update compile server gcc version "
+    echo -e "***********************************************$nocol"
+    # 下载安装gcc版本
+    if [ "${GCCVERSION:0:2}" == "13" ]; then
+        gccVer=gcc-13.1.0
+    else
+        gccVer=gcc-13.1.0
+    fi
+    wget http://ftp.gnu.org/gnu/gcc/$gccVer/$gccVer.tar.gz
+    tar xf $gccVer.tar.gz
+    cd $gccVer/
+    ./contrib/download_prerequisites
+    mkdir build && cd build
+    ../configure -enable-checking=release -enable-languages=c,c++ -disable-multilib
+    sudo make -j$(nproc --all) 
+    sudo make install
 }
 
 # 编译准备
@@ -113,6 +140,8 @@ function build_defconfig() {
     echo -e "$blue***********************************************"
     echo "  Building Device Kernel $KERNEL_DEFCONFIG  "
     echo -e "***********************************************$nocol"
+    echo "CONFIG_OVERLAY_FS=y" >> arch/arm64/configs/$KERNEL_DEFCONFIG
+    echo "CONFIG_CC_WERROR=n" >> arch/arm64/configs/$KERNEL_DEFCONFIG
     make ${args} $KERNEL_DEFCONFIG
 }
 
@@ -169,6 +198,14 @@ function objs_clean() {
     echo -e "$blue***********************************************"
     echo "  Clean last objs  "
     echo -e "***********************************************$nocol"
+
+    if [ ! -d out/arch/arm64/boot/dts ]; then
+        mkdir -p arch/arm64/boot/dts
+    fi
+    
+    if [ ! -f out/.config ]; then
+        cp -rf arch/$ARCH/configs/$KERNEL_DEFCONFIG out/.config
+    fi
     make O=out clean && make O=out mrproper
     rm -rf out
     cd $ANYKERNEL3_DIR
