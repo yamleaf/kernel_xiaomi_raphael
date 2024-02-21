@@ -199,8 +199,8 @@ function objs_clean() {
     echo "  Clean last objs  "
     echo -e "***********************************************$nocol"
 
-    if [ ! -d out/arch/arm64/boot/dts ]; then
-        mkdir -p arch/arm64/boot/dts
+    if [ ! -d out/arch/$ARCH/boot/dts ]; then
+        mkdir -p out/arch/$ARCH/boot/dts
     fi
     
     if [ ! -f out/.config ]; then
