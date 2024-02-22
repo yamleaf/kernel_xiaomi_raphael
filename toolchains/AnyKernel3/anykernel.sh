@@ -4,7 +4,7 @@
 ### AnyKernel setup
 # global properties
 properties() { '
-kernel.string=RikkaKernel V2 by Helium_Studio @ CoolApk
+kernel.string=rikka
 do.devicecheck=1
 do.modules=0
 do.systemless=0

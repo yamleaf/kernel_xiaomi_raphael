@@ -13,12 +13,11 @@ TARGET_OBJS="Image.gz-dtb"
 FINAL_KERNEL_ZIP_PRE=rikkakernel-v2-raphael
 FINAL_KERNEL_ZIP=$FINAL_KERNEL_ZIP_PRE-$(date '+%Y%m%d-%H%M').zip
 
+#set compile
+CC_TYPE="neutron=main"
+
 # 设置编译参数
 CC_DIR=$PWD/toolchains/clang
-#CC_GIT=https://github.com/kdrag0n/proton-clang.git
-#CC_TYPE=
-CC_GIT=https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman
-CC_TYPE="antman=main"
 CC=clang
 CROSS_COMPILE=aarch64-linux-gnu-
 CROSS_COMPILE_ARM32=arm-linux-gnueabi-
@@ -128,11 +127,6 @@ function build_prepare() {
     cd $KSU_DIR
     git pull origin $KSU_BRANCH
     cd $CURRENT_DIR
-
-    if [ "$UPDATEBUILDENV" == "true" ]; then
-        sudo apt-get update
-        sudo apt install -y libelf-dev libarchive-tools lld llvm gcc binutils-arm-linux-gnueabi binutils-aarch64-linux-gnu curl wget vim git ccache automake flex lzop bison gperf build-essential zip zlib1g-dev g++-multilib libxml2-utils bzip2 libbz2-dev libbz2-1.0 libghc-bzlib-dev squashfs-tools pngcrush schedtool dpkg-dev liblz4-tool make optipng maven libssl-dev pwgen libswitch-perl policycoreutils minicom libxml-sax-base-perl libxml-simple-perl bc libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z-dev libgl1-mesa-dev xsltproc unzip device-tree-compiler kmod python2 python3 python3-pip
-    fi
 }
 
 # 构建设备配置
@@ -157,39 +151,98 @@ function build_kernel() {
     fi
 }
 
+# download neutron clang
+function down_neutron_clang() {
+    sudo apt-get update
+    sudo apt install -y libelf-dev libarchive-tools lld llvm gcc binutils-arm-linux-gnueabi binutils-aarch64-linux-gnu curl wget vim git ccache automake flex lzop bison gperf build-essential zip zlib1g-dev g++-multilib libxml2-utils bzip2 libbz2-dev libbz2-1.0 libghc-bzlib-dev squashfs-tools pngcrush schedtool dpkg-dev liblz4-tool make optipng maven libssl-dev pwgen libswitch-perl policycoreutils minicom libxml-sax-base-perl libxml-simple-perl bc libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z-dev libgl1-mesa-dev xsltproc unzip device-tree-compiler kmod python2 python3 python3-pip
+ 
+    mkdir -p $CC_DIR && cd $CC_DIR
+    curl -LO  https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman
+    chmod +x antman
+    if [ "${CC_TYPE#*=}" == "main" ]; then
+        ./antman --sync=latest
+    elif ["${CC_TYPE#*=}" == "18" ]; then
+        ./antman -S=29072023
+    elif [ "${CC_TYPE#*=}" == "17" ]; then
+        ./antman -S=11032023
+    elif [ "${CC_TYPE#*=}" == "16" ]; then
+        ./antman -S=16012023
+    else
+        ./antman --sync=latest
+    fi
+    ./antman --patch=glibc
+}
+
+# download proton clang
+function down_proton_clang() {
+    sudo apt-get update
+    sudo apt install -y curl python2 libelf-dev llvm lld wget vim git ccache automake flex lzop bison gperf build-essential zip zlib1g-dev g++-multilib libxml2-utils bzip2 libbz2-dev libbz2-1.0 libghc-bzlib-dev squashfs-tools pngcrush schedtool dpkg-dev liblz4-tool make optipng maven libssl-dev pwgen libswitch-perl policycoreutils minicom libxml-sax-base-perl libxml-simple-perl bc libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z-dev libgl1-mesa-dev xsltproc unzip device-tree-compiler kmod python3 python3-pip
+
+    if ! git clone -q https://github.com/kdrag0n/proton-clang.git --depth=1  $CC_DIR; then
+        echo "Cloning failed! Aborting..."
+        exit 1
+    fi
+}
+
+# download mandisa clang
+function down_mandisa_clang() {
+    sudo apt-get update
+    sudo apt install -y libelf-dev p7zip-full lld llvm gcc binutils-arm-linux-gnueabi binutils-aarch64-linux-gnu curl wget vim git ccache automake flex lzop bison gperf build-essential zip zlib1g-dev g++-multilib libxml2-utils bzip2 libbz2-dev libbz2-1.0 libghc-bzlib-dev squashfs-tools pngcrush schedtool dpkg-dev liblz4-tool make optipng maven libssl-dev pwgen libswitch-perl policycoreutils minicom libxml-sax-base-perl libxml-simple-perl bc libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z-dev libgl1-mesa-dev xsltproc unzip device-tree-compiler kmod python3 python3-pip
+
+    if [ "${CC_TYPE#*=}" == "19" ]; then
+        wget -O clang.7z https://github.com/Mandi-Sa/clang/releases/download/amd64-kernel-arm-19/llvm19.0.0-binutils2.42.50_amd64-kernel-arm_20240218.7z
+    fi
+    
+    if [ "${CC_TYPE#*=}" == "18" ]; then
+        wget -O clang.7z https://github.com/Mandi-Sa/clang/releases/download/amd64-kernel-arm-18/llvm18.0.0-binutils2.41.50_amd64-kernel-arm_20230726.7z
+    fi
+    
+    if [ "${CC_TYPE#*=}" == "17" ]; then
+        wget -O clang.7z https://github.com/Mandi-Sa/clang/releases/download/amd64-kernel-arm-17/llvm17.0.0-binutils2.40.50_amd64-kernel-arm_20230127.7z
+    fi
+
+    if [ "${CC_TYPE#*=}" == "16" ]; then
+        wget -O clang.7z https://github.com/Mandi-Sa/clang/releases/download/amd64-kernel-arm-16/llvm16.0.0-binutils2.39.50_amd64-kernel-arm_20220826.7z
+    fi
+
+    if [ "${CC_TYPE#*=}" == "15" ]; then
+        wget -O clang.7z https://github.com/Mandi-Sa/clang/releases/download/amd64-kernel-arm-15/llvm15.0.0-binutils2.38_amd64-kernel-arm_20220502.7z
+    fi
+	7z x clang.7z -r -o $CC_DIR
+	rm -rf clang.7z
+}
+
+# 构建内核
+function build_kernel() {
+    echo -e "$blue***********************************************"
+    echo "  Building Kernel drivers  "
+    echo -e "***********************************************$nocol"
+    make ${args} $TARGET_OBJS
+    if [ $? == 1 ]; then
+        echo "$red *** kernel build error!!! ****$nocol"
+        exit 1
+    fi
+}
+
 # 检查工具链
 function build_toolchain() {
     echo -e "$blue***********************************************"
     echo "  Build toolchains check  "
     echo -e "***********************************************$nocol"
     if ! [ -d "$CC_DIR/bin" ]; then
-        echo "Clang not found! Cloning $CC_GIT"
-        if [ "antman" == "${CC_TYPE%%=*}" ]; then
-            mkdir -p $CC_DIR
-            cd $CC_DIR
-            curl -LO  $CC_GIT
-            chmod +x antman
-            if [ "${CC_TYPE#*=}" == "main" ]; then
-                ./antman --sync=latest
-            elif ["${CC_TYPE#*=}" == "18" ]; then
-                ./antman -S=29072023
-            elif [ "${CC_TYPE#*=}" == "17" ]; then
-                ./antman -S=11032023
-            elif [ "${CC_TYPE#*=}" == "16" ]; then
-                ./antman -S=16012023
-            else
-                ./antman --sync=latest
-            fi
-            ./antman --patch=glibc
-            cd $CURRENT_DIR
+        echo "Clang not found! Cloning $CC_TYPE"
+        if [ "neutron" == "${CC_TYPE%%=*}" ]; then
+            down_neutron_clang
+        elif [ "mandisa" == "${CC_TYPE%%=*}" ]; then
+            down_mandisa_clang
         else
-            if ! git clone -q $CC_GIT --depth=1  $CC_DIR; then
-                echo "Cloning failed! Aborting..."
-                exit 1
-            fi
+            down_proton_clang
         fi
+    else
+        echo "Clang find, start building..."
     fi
     
+    cd $CURRENT_DIR
     export KBUILD_COMPILER_STRING="$($CC_DIR/bin/clang --version | head -n 1 | perl -pe 's/\(http.*?\)//gs' | sed -e 's/  */ /g' -e 's/[[:space:]]*$//')"
 }
 
