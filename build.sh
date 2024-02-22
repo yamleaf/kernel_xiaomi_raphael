@@ -123,10 +123,7 @@ function build_prepare() {
     if [ ! -d $CURRENT_DIR/out ]; then
         mkdir -p out
     fi
-    git submodule init && git submodule update
-    cd $KSU_DIR
-    git pull origin $KSU_BRANCH
-    cd $CURRENT_DIR
+    git submodule init && git submodule update --remote --merge
 }
 
 # 构建设备配置
