@@ -25,7 +25,7 @@ patch_vbmeta_flag=auto;
 
 if [[ -f Image.gz-dtb.erofs ]] || [[ -f Image.gz-dtb.ext4 ]]; then
     var=$(awk '/\/vendor erofs/ {print $3}' /proc/mounts)
-    if [[ ${var} = "erofs" ]]; then
+    if [[ "${var}" == "erofs" ]]; then
         mv Image.gz-dtb.erofs Image.gz-dtb
     else
         mv Image.gz-dtb.ext4 Image.gz-dtb
